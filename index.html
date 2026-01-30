@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BL Storage Chat - Quantum Secure Multi-User Chat</title>
+    <title>BL Storage Chat - Working Version</title>
     <style>
-        /* [Keep all your existing CSS styles - they're perfect] */
         * {
             margin: 0;
             padding: 0;
@@ -143,7 +142,6 @@
             font-weight: 600;
             cursor: pointer;
             transition: transform 0.2s, box-shadow 0.2s;
-            width: 100%;
         }
 
         button:hover {
@@ -347,136 +345,142 @@
             background: #ff9800;
             animation: pulse 1.5s infinite;
         }
+        
+        .debug-panel {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 12px;
+            font-family: monospace;
+            max-height: 100px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
     <div class="chat-container">
-        <!-- Header -->
         <div class="header">
-            <h1>⚛️ BL Quantum Chat</h1>
+            <h1>💬 BL Storage Chat</h1>
             <div class="status">
                 <span class="online-indicator"></span>
-                Real-time Multi-User Chat powered by BL Storage v2.0
+                Real-time Chat using BL Storage API
             </div>
         </div>
 
-        <!-- Setup Panel -->
         <div class="setup-panel" id="setupPanel">
             <div class="user-setup">
                 <div class="user-box">
-                    <h3><span class="user-avatar">A</span> User 1 Setup</h3>
-                    <input type="text" id="user1Name" placeholder="Your Name (e.g., Alice)" value="Alice">
-                    <select id="user1Avatar">
-                        <option value="👩‍💻">👩‍💻 Tech Alice</option>
-                        <option value="👩‍🎨">👩‍🎨 Creative Alice</option>
-                        <option value="👩‍🔬">👩‍🔬 Scientist Alice</option>
-                        <option value="⚛️">⚛️ Quantum Alice</option>
+                    <h3><span class="user-avatar">A</span> Your Info</h3>
+                    <input type="text" id="userName" placeholder="Your Name" value="Alice">
+                    <select id="userAvatar">
+                        <option value="👩‍💻">👩‍💻 Tech</option>
+                        <option value="👨‍💻">👨‍💻 Tech</option>
+                        <option value="👩‍🎨">👩‍🎨 Creative</option>
+                        <option value="👨‍🎨">👨‍🎨 Creative</option>
                     </select>
                 </div>
 
                 <div class="user-box">
-                    <h3><span class="user-avatar">B</span> User 2 Setup</h3>
-                    <input type="text" id="user2Name" placeholder="Your Name (e.g., Bob)" value="Bob">
-                    <select id="user2Avatar">
-                        <option value="👨‍💻">👨‍💻 Tech Bob</option>
-                        <option value="👨‍🎨">👨‍🎨 Creative Bob</option>
-                        <option value="👨‍🔬">👨‍🔬 Scientist Bob</option>
-                        <option value="⚛️">⚛️ Quantum Bob</option>
-                    </select>
+                    <h3><span class="user-avatar">⚙️</span> Room Settings</h3>
+                    <input type="text" id="roomName" placeholder="Room Name" value="General Chat">
+                    <input type="text" id="roomId" placeholder="Room ID" value="test-room-123">
+                    <div style="margin-top: 10px; color: #666; font-size: 14px;">
+                        💡 Share Room ID to chat with others
+                    </div>
                 </div>
             </div>
 
-            <div class="user-box">
-                <h3>⚙️ Chat Room Settings</h3>
-                <input type="text" id="roomName" placeholder="Room Name (e.g., Quantum Lounge)" value="Quantum Lounge">
-                <input type="text" id="roomId" placeholder="Room ID (leave empty for random)" value="quantum-chat-123">
-                <div style="margin-top: 10px; color: #666; font-size: 14px;">
-                    💡 <strong>IMPORTANT:</strong> Share the Room ID with the person you want to chat with!
-                </div>
+            <div style="text-align: center; margin-top: 20px;">
+                <button onclick="initializeChat()" id="startChatBtn" style="width: 200px; margin: 0 auto;">
+                    🚀 Start Chat
+                </button>
             </div>
-
-            <button onclick="initializeChat()" id="startChatBtn">
-                🚀 Start Quantum Chat
-            </button>
+            
+            <div class="debug-panel" id="debugLog"></div>
         </div>
 
-        <!-- Chat Panel (Initially Hidden) -->
         <div class="chat-panel" id="chatPanel" style="display: none;">
-            <!-- Room Info -->
             <div class="chat-room-info">
                 <div>
-                    <strong>Room:</strong> <span id="currentRoomName">Quantum Lounge</span>
+                    <strong>Room:</strong> <span id="currentRoomName">General Chat</span>
                     <div class="connection-status">
                         <span class="status-dot connecting" id="statusDot"></span>
-                        <span id="statusText">Connecting to BL Storage...</span>
+                        <span id="statusText">Initializing...</span>
                     </div>
                 </div>
                 <div>
-                    <strong>Room ID:</strong> <span class="room-id" id="currentRoomId">quantum-chat-123</span>
+                    <strong>Room ID:</strong> <span class="room-id" id="currentRoomId">test-room-123</span>
                     <button onclick="copyRoomId()" style="margin-top: 5px; padding: 5px 10px; font-size: 12px;">
                         📋 Copy
                     </button>
                 </div>
             </div>
 
-            <!-- Messages -->
             <div class="chat-messages" id="chatMessages">
-                <div class="typing-indicator" id="typingIndicator" style="display: none;">
-                    <span id="typingUser"></span> is typing...
+                <div id="typingIndicator" style="display: none; padding: 10px; font-style: italic; color: #666;">
+                    Someone is typing...
                 </div>
             </div>
 
-            <!-- Input Area -->
             <div class="chat-input-area">
                 <textarea 
                     class="chat-input" 
                     id="messageInput" 
-                    placeholder="Type your message here... (Press Enter to send, Shift+Enter for new line)"
+                    placeholder="Type a message..."
                     onkeydown="handleKeyPress(event)"
                     disabled
                 ></textarea>
                 <button class="send-button" onclick="sendMessage()" id="sendBtn" disabled>
-                    📤 Send
+                    Send
                 </button>
             </div>
         </div>
     </div>
 
     <script>
-        // ============ UPDATED BL STORAGE CLIENT ============
-        // Fixed to match your actual BL Storage engine API
+        // ============ DEBUG LOGGING ============
+        function debugLog(message, data = null) {
+            const logDiv = document.getElementById('debugLog');
+            if (logDiv) {
+                const entry = document.createElement('div');
+                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                if (data) {
+                    entry.textContent += `: ${JSON.stringify(data).substring(0, 100)}`;
+                }
+                logDiv.appendChild(entry);
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
+            console.log(message, data);
+        }
+
+        // ============ BL STORAGE CLIENT (FIXED) ============
         class BLStorageClient {
-            constructor(apiKey, baseUrl = 'https://blstorage.2029ijones.workers.dev') {
+            constructor(apiKey = 'chat-app-key', baseUrl = 'https://blstorage.2029ijones.workers.dev') {
                 this.apiKey = apiKey;
-                this.baseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-                this.apiVersion = 'v1';
+                this.baseUrl = baseUrl.replace(/\/$/, '');
             }
 
-            async _request(endpoint, method = 'POST', data = null, params = {}) {
+            async _request(endpoint, method = 'GET', data = null, params = {}) {
                 try {
-                    // Build URL with proper endpoint structure
-                    let url = `${this.baseUrl}/api/${this.apiVersion}/${endpoint}`;
+                    // Build URL with query parameters
+                    const url = new URL(`${this.baseUrl}/api/v1/${endpoint}`);
                     
-                    // Add query parameters for GET requests
-                    if (method === 'GET' && params) {
-                        const urlObj = new URL(url);
-                        Object.entries(params).forEach(([key, value]) => {
-                            if (value !== undefined && value !== null) {
-                                urlObj.searchParams.set(key, value);
-                            }
-                        });
-                        url = urlObj.toString();
-                    }
+                    // Add query parameters
+                    Object.entries(params).forEach(([key, value]) => {
+                        if (value !== undefined && value !== null && value !== '') {
+                            url.searchParams.set(key, value.toString());
+                        }
+                    });
                     
-                    console.log(`BL Storage Request: ${method} ${url}`, data);
+                    debugLog(`${method} ${url.pathname}${url.search}`, data);
                     
                     const options = {
                         method,
                         headers: {
                             'Content-Type': 'application/json',
                             'X-BL-API-Key': this.apiKey
-                        },
-                        mode: 'cors'
+                        }
                     };
                     
                     if (data && method !== 'GET') {
@@ -491,31 +495,31 @@
                     }
                     
                     const result = await response.json();
-                    console.log(`BL Storage Response:`, result);
+                    debugLog(`Response from ${endpoint}`, result);
                     return result;
                     
                 } catch (error) {
-                    console.error('BL Storage Request Failed:', error);
+                    debugLog(`Request failed: ${endpoint}`, error.message);
                     throw error;
                 }
             }
 
+            // FIXED: Key is passed as query parameter, not in body
             async store(key, value, options = {}) {
                 return this._request('store', 'POST', {
                     value: value,
                     options: {
-                        encrypted: true,
+                        encrypted: false, // Keep it simple for chat
                         accessControl: { public: true },
-                        tags: ['chat', 'message', options.roomId || 'default'],
-                        ttl: options.ttl || 7 * 24 * 60 * 60 * 1000, // 7 days
+                        tags: ['chat'],
                         ...options
                     }
-                }, { key });
+                }, { key: key });
             }
 
             async retrieve(key, options = {}) {
                 return this._request('retrieve', 'GET', null, { 
-                    key, 
+                    key: key,
                     ...options 
                 });
             }
@@ -523,16 +527,12 @@
             async update(key, value, options = {}) {
                 return this._request('update', 'POST', {
                     value: value,
-                    options: {
-                        encrypted: true,
-                        accessControl: { public: true },
-                        ...options
-                    }
-                }, { key });
+                    options: options
+                }, { key: key });
             }
 
             async delete(key, options = {}) {
-                return this._request('delete', 'DELETE', options, { key });
+                return this._request('delete', 'DELETE', options, { key: key });
             }
 
             async query(query, options = {}) {
@@ -542,163 +542,96 @@
                 });
             }
 
-            async search(searchParams) {
-                return this._request('search', 'POST', searchParams);
-            }
-
             async health() {
                 return this._request('health', 'GET');
             }
         }
 
-        // ============ SIMPLIFIED CHAT APPLICATION ============
-        class ChatApp {
-            constructor(userId, userName, userAvatar, roomId, roomName) {
-                this.userId = userId;
+        // ============ SIMPLE CHAT SYSTEM ============
+        class SimpleChat {
+            constructor(userName, userAvatar, roomId, roomName) {
+                this.userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                 this.userName = userName;
                 this.userAvatar = userAvatar;
                 this.roomId = roomId;
                 this.roomName = roomName;
-                this.client = new BLStorageClient(`chat-app-${roomId}`);
+                this.client = new BLStorageClient(`chat-${roomId}`);
                 this.messages = [];
                 this.pollingInterval = null;
-                this.lastPollTime = Date.now();
                 
-                console.log(`ChatApp created for ${userName} in room ${roomId}`);
+                debugLog(`Chat created for ${userName} in room ${roomId}`);
             }
 
             async initialize() {
                 try {
-                    // First, check if BL Storage is accessible
+                    // Test connection
                     const health = await this.client.health();
-                    console.log('BL Storage Health:', health);
+                    debugLog('Health check', health);
                     
                     if (!health || health.status !== 'healthy') {
-                        throw new Error('BL Storage service unavailable');
+                        throw new Error('BL Storage not available');
                     }
 
-                    // Check if room exists
-                    const roomKey = `chat-room:${this.roomId}`;
-                    let roomData;
-                    
+                    // Initialize or get room
+                    const roomKey = `chat_room_${this.roomId}`;
                     try {
-                        roomData = await this.client.retrieve(roomKey);
-                        console.log('Existing room found:', roomData);
-                        
-                        // Update room with current user
-                        if (roomData.value && !roomData.value.members.includes(this.userId)) {
-                            roomData.value.members.push(this.userId);
-                            roomData.value.lastActivity = new Date().toISOString();
-                            await this.client.update(roomKey, roomData.value);
-                        }
+                        const existing = await this.client.retrieve(roomKey);
+                        debugLog('Existing room found', existing);
+                        this.messages = existing.value?.messages || [];
                     } catch (error) {
-                        // Room doesn't exist, create it
-                        console.log('Creating new room...');
-                        roomData = {
+                        // Create new room
+                        debugLog('Creating new room');
+                        await this.client.store(roomKey, {
                             id: this.roomId,
                             name: this.roomName,
-                            createdBy: this.userId,
-                            createdAt: new Date().toISOString(),
-                            members: [this.userId],
-                            messages: [],
-                            lastActivity: new Date().toISOString()
-                        };
-                        
-                        await this.client.store(roomKey, roomData, {
-                            tags: ['chatroom', this.roomName.toLowerCase().replace(/\s+/g, '-')]
+                            created: new Date().toISOString(),
+                            users: [this.userId],
+                            messages: []
+                        }, {
+                            tags: ['chat-room', this.roomId]
                         });
                     }
 
-                    // Store user profile
-                    const userKey = `chat-user:${this.roomId}:${this.userId}`;
-                    await this.client.store(userKey, {
-                        id: this.userId,
-                        name: this.userName,
-                        avatar: this.userAvatar,
-                        roomId: this.roomId,
-                        lastSeen: new Date().toISOString(),
-                        status: 'online'
-                    }, {
-                        ttl: 300000 // 5 minutes
-                    });
-
-                    // Load existing messages
-                    await this.loadMessages();
-                    
+                    updateStatus(true);
+                    debugLog('Chat initialized successfully');
                     return true;
                     
                 } catch (error) {
-                    console.error('Failed to initialize chat:', error);
+                    debugLog('Chat initialization failed', error.message);
                     throw error;
-                }
-            }
-
-            async loadMessages() {
-                try {
-                    // Query for messages in this room
-                    const queryResult = await this.client.query({
-                        roomId: this.roomId,
-                        type: 'chat-message'
-                    }, {
-                        sortBy: 'timestamp',
-                        sortOrder: 'asc'
-                    });
-                    
-                    if (queryResult.results && queryResult.results.length > 0) {
-                        this.messages = queryResult.results.map(r => r.value);
-                    }
-                    
-                    return this.messages;
-                } catch (error) {
-                    console.warn('Failed to load messages:', error);
-                    return [];
                 }
             }
 
             async sendMessage(text) {
                 if (!text.trim()) return null;
 
-                const messageId = `msg_${Date.now()}_${this.userId}`;
                 const message = {
-                    id: messageId,
-                    roomId: this.roomId,
+                    id: `msg_${Date.now()}_${this.userId}`,
                     userId: this.userId,
                     userName: this.userName,
                     userAvatar: this.userAvatar,
                     text: text.trim(),
                     timestamp: new Date().toISOString(),
-                    type: 'chat-message'
+                    roomId: this.roomId
                 };
 
                 // Store message
-                await this.client.store(`chat-message:${messageId}`, message, {
-                    roomId: this.roomId,
-                    tags: ['message', this.roomId, this.userId]
+                const messageKey = `chat_msg_${message.id}`;
+                await this.client.store(messageKey, message, {
+                    tags: ['chat-message', this.roomId]
                 });
 
-                // Update room
-                const roomKey = `chat-room:${this.roomId}`;
+                // Update room with new message
+                const roomKey = `chat_room_${this.roomId}`;
                 try {
                     const room = await this.client.retrieve(roomKey);
                     if (room.value) {
-                        room.value.messages = [...(room.value.messages || []), messageId];
+                        room.value.messages = [...(room.value.messages || []), message.id];
                         room.value.lastActivity = new Date().toISOString();
-                        room.value.lastMessage = messageId;
                         await this.client.update(roomKey, room.value);
                     }
                 } catch (error) {
-                    console.warn('Failed to update room:', error);
-                }
-
-                // Update user last seen
-                const userKey = `chat-user:${this.roomId}:${this.userId}`;
-                try {
-                    await this.client.update(userKey, {
-                        lastSeen: new Date().toISOString(),
-                        status: 'online'
-                    });
-                } catch (error) {
-                    console.warn('Failed to update user:', error);
+                    debugLog('Failed to update room', error.message);
                 }
 
                 this.messages.push(message);
@@ -707,37 +640,33 @@
 
             async getNewMessages() {
                 try {
-                    const roomKey = `chat-room:${this.roomId}`;
+                    const roomKey = `chat_room_${this.roomId}`;
                     const room = await this.client.retrieve(roomKey);
                     
                     if (!room.value || !room.value.messages) {
                         return [];
                     }
 
-                    // Get the last 20 messages
-                    const lastMessageIds = room.value.messages.slice(-20);
-                    const newMessages = [];
+                    const newMessageIds = room.value.messages
+                        .filter(msgId => !this.messages.find(m => m.id === msgId))
+                        .slice(-10); // Last 10 new messages
 
-                    for (const msgId of lastMessageIds) {
-                        // Only fetch messages we haven't loaded yet
-                        if (!this.messages.find(m => m.id === msgId)) {
-                            try {
-                                const msg = await this.client.retrieve(`chat-message:${msgId}`);
-                                if (msg.value && msg.value.userId !== this.userId) {
-                                    newMessages.push(msg.value);
-                                }
-                            } catch (error) {
-                                console.warn(`Failed to fetch message ${msgId}:`, error);
+                    const newMessages = [];
+                    for (const msgId of newMessageIds) {
+                        try {
+                            const msg = await this.client.retrieve(`chat_msg_${msgId}`);
+                            if (msg.value && msg.value.userId !== this.userId) {
+                                newMessages.push(msg.value);
+                                this.messages.push(msg.value);
                             }
+                        } catch (error) {
+                            debugLog(`Failed to fetch message ${msgId}`, error.message);
                         }
                     }
 
-                    // Update our messages list
-                    this.messages = [...this.messages, ...newMessages];
-                    
                     return newMessages;
                 } catch (error) {
-                    console.warn('Failed to get new messages:', error);
+                    debugLog('Failed to get new messages', error.message);
                     return [];
                 }
             }
@@ -753,12 +682,10 @@
                         if (newMessages.length > 0) {
                             onNewMessages(newMessages);
                         }
-                        updateStatus(true);
                     } catch (error) {
-                        console.warn('Polling error:', error.message);
-                        updateStatus(false);
+                        debugLog('Polling error', error.message);
                     }
-                }, 2000); // Poll every 2 seconds
+                }, 3000); // Every 3 seconds
             }
 
             stopPolling() {
@@ -770,8 +697,7 @@
         }
 
         // ============ GLOBAL STATE ============
-        let currentUser = null;
-        let chatApp = null;
+        let chat = null;
 
         // ============ UI FUNCTIONS ============
         function showNotification(message, type = 'info') {
@@ -792,17 +718,17 @@
             
             if (connected) {
                 statusDot.className = 'status-dot connected';
-                statusText.textContent = 'Connected to BL Storage';
+                statusText.textContent = 'Connected';
             } else {
                 statusDot.className = 'status-dot disconnected';
-                statusText.textContent = 'Disconnected - Retrying...';
+                statusText.textContent = 'Disconnected';
             }
         }
 
         function copyRoomId() {
             const roomId = document.getElementById('currentRoomId').textContent;
             navigator.clipboard.writeText(roomId).then(() => {
-                showNotification('Room ID copied to clipboard! Share it with your friend.', 'info');
+                showNotification('Room ID copied!', 'info');
             });
         }
 
@@ -822,11 +748,11 @@
             }
         }
 
-        function addMessageToUI(message, isSent = false) {
+        function addMessageToUI(message, isCurrentUser = false) {
             const chatMessages = document.getElementById('chatMessages');
             
             const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+            messageDiv.className = `message ${isCurrentUser ? 'sent' : 'received'}`;
             
             messageDiv.innerHTML = `
                 <div class="message-bubble">
@@ -834,7 +760,7 @@
                 </div>
                 <div class="message-info">
                     <span class="message-sender">
-                        ${message.userAvatar || ''} ${message.userName || message.userId}
+                        ${message.userAvatar || ''} ${message.userName}
                     </span>
                     <span class="message-time">
                         ${formatTime(message.timestamp)}
@@ -846,39 +772,23 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-        async function loadChatHistory() {
-            if (!chatApp) return;
-            
-            try {
-                const messages = await chatApp.loadMessages();
-                const chatMessages = document.getElementById('chatMessages');
-                chatMessages.innerHTML = '';
-                
-                messages.forEach(message => {
-                    addMessageToUI(message, message.userId === currentUser.id);
-                });
-            } catch (error) {
-                console.error('Failed to load chat history:', error);
-            }
-        }
-
         async function sendMessage() {
             const messageInput = document.getElementById('messageInput');
             const text = messageInput.value.trim();
             
-            if (!text || !chatApp) return;
+            if (!text || !chat) return;
             
             messageInput.disabled = true;
             document.getElementById('sendBtn').disabled = true;
             
             try {
-                const message = await chatApp.sendMessage(text);
+                const message = await chat.sendMessage(text);
                 if (message) {
                     addMessageToUI(message, true);
                     messageInput.value = '';
                 }
             } catch (error) {
-                showNotification(`Failed to send message: ${error.message}`, 'error');
+                showNotification(`Failed to send: ${error.message}`, 'error');
             }
             
             messageInput.disabled = false;
@@ -888,105 +798,69 @@
 
         // ============ INITIALIZATION ============
         async function initializeChat() {
-            const user1Name = document.getElementById('user1Name').value.trim();
-            const user1Avatar = document.getElementById('user1Avatar').value;
-            const user2Name = document.getElementById('user2Name').value.trim();
-            const user2Avatar = document.getElementById('user2Avatar').value;
+            const userName = document.getElementById('userName').value.trim();
+            const userAvatar = document.getElementById('userAvatar').value;
             const roomName = document.getElementById('roomName').value.trim();
             let roomId = document.getElementById('roomId').value.trim();
             
-            if (!user1Name || !user2Name || !roomName) {
-                showNotification('Please fill in all fields', 'warning');
+            if (!userName || !roomName) {
+                showNotification('Please enter your name and room name', 'warning');
                 return;
             }
             
             if (!roomId) {
-                roomId = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
+                roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+                document.getElementById('roomId').value = roomId;
             }
             
-            // Ask which user you are
-            const userChoice = prompt(
-                `Are you:\n1. ${user1Name} ${user1Avatar}\n2. ${user2Name} ${user2Avatar}\n\nEnter 1 or 2:`
-            );
-            
-            if (userChoice === '1') {
-                currentUser = { id: 'user1', name: user1Name, avatar: user1Avatar };
-            } else if (userChoice === '2') {
-                currentUser = { id: 'user2', name: user2Name, avatar: user2Avatar };
-            } else {
-                showNotification('Please select a valid user', 'warning');
-                return;
-            }
-            
-            // Disable start button
             const startBtn = document.getElementById('startChatBtn');
             startBtn.disabled = true;
-            startBtn.textContent = 'Connecting to BL Storage...';
+            startBtn.textContent = 'Connecting...';
             
             try {
-                // Initialize chat app
-                chatApp = new ChatApp(
-                    currentUser.id,
-                    currentUser.name,
-                    currentUser.avatar,
-                    roomId,
-                    roomName
-                );
+                // Create chat
+                chat = new SimpleChat(userName, userAvatar, roomId, roomName);
+                await chat.initialize();
                 
-                await chatApp.initialize();
-                
-                // Switch to chat panel
+                // Switch UI
                 document.getElementById('setupPanel').style.display = 'none';
                 document.getElementById('chatPanel').style.display = 'flex';
                 
-                // Update UI
+                // Update display
                 document.getElementById('currentRoomName').textContent = roomName;
                 document.getElementById('currentRoomId').textContent = roomId;
                 
-                // Load chat history
-                await loadChatHistory();
-                
-                // Start polling for new messages
-                chatApp.startPolling((newMessages) => {
+                // Start polling
+                chat.startPolling((newMessages) => {
                     newMessages.forEach(message => {
                         addMessageToUI(message, false);
                     });
                     
                     if (newMessages.length > 0) {
-                        // Notification sound for new messages
-                        if (document.hidden) {
-                            try {
-                                const audio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ');
-                                audio.play().catch(() => {});
-                            } catch {}
-                        }
-                        
                         showNotification(`New message from ${newMessages[0].userName}`, 'info');
                     }
                 });
-                
-                showNotification(`Welcome ${currentUser.name}! Share Room ID: ${roomId}`, 'info');
                 
                 // Enable input
                 document.getElementById('messageInput').disabled = false;
                 document.getElementById('sendBtn').disabled = false;
                 document.getElementById('messageInput').focus();
                 
-                updateStatus(true);
+                showNotification(`Welcome ${userName}! Room: ${roomId}`, 'info');
                 
             } catch (error) {
-                console.error('Chat initialization failed:', error);
-                showNotification(`Failed to initialize chat: ${error.message}`, 'error');
+                debugLog('Chat init failed', error.message);
+                showNotification(`Failed: ${error.message}`, 'error');
                 startBtn.disabled = false;
-                startBtn.textContent = '🚀 Start Quantum Chat';
+                startBtn.textContent = '🚀 Start Chat';
             }
         }
 
         // ============ PAGE VISIBILITY ============
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && chatApp) {
-                // Page became visible, check for new messages
-                chatApp.getNewMessages().then(messages => {
+            if (!document.hidden && chat) {
+                // Check for new messages when tab becomes visible
+                chat.getNewMessages().then(messages => {
                     if (messages.length > 0) {
                         messages.forEach(message => {
                             addMessageToUI(message, false);
@@ -996,17 +870,17 @@
             }
         });
 
-        // Test connection on load
+        // Initial connection test
         window.addEventListener('load', async () => {
             try {
-                const testClient = new BLStorageClient('test-key');
+                const testClient = new BLStorageClient('test');
                 const health = await testClient.health();
-                console.log('BL Storage connection test:', health);
-                if (health && health.status === 'healthy') {
+                debugLog('Connection test', health);
+                if (health.status === 'healthy') {
                     updateStatus(true);
                 }
             } catch (error) {
-                console.warn('BL Storage connection test failed:', error);
+                debugLog('Connection test failed', error.message);
             }
         });
     </script>
