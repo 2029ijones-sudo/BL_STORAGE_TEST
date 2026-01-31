@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BL Storage Chat - Multi-User Fixed Version</title>
+    <title>BL Storage Chat - Local Backup System</title>
     <style>
+        /* Keep your existing CSS styles, they're good */
         * {
             margin: 0;
             padding: 0;
@@ -370,6 +371,38 @@
             max-height: 100px;
             overflow-y: auto;
         }
+        
+        .storage-status {
+            background: #f0f0f0;
+            padding: 8px;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-size: 11px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .storage-status span {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+        }
+        
+        .storage-status .online {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .storage-status .offline {
+            background: #f44336;
+            color: white;
+        }
+        
+        .storage-status .backup {
+            background: #2196F3;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -378,7 +411,7 @@
             <h1>💬 BL Storage Chat</h1>
             <div class="status">
                 <span class="online-indicator"></span>
-                Real-time Multi-User Chat using BL Storage API
+                Real-time Multi-User Chat with Local Backup
             </div>
         </div>
 
@@ -404,6 +437,20 @@
                     <div style="margin-top: 10px; color: #666; font-size: 14px;">
                         💡 Share Room ID to chat with others
                     </div>
+                </div>
+            </div>
+            
+            <div class="storage-status" id="storageStatus">
+                <div>
+                    <strong>Storage Status:</strong>
+                    <span id="blStatus" class="offline">BL: Checking...</span>
+                    <span id="localStatus" class="online">Local: Ready</span>
+                    <span id="backupStatus" class="backup">Backup: Ready</span>
+                </div>
+                <div>
+                    <button onclick="clearLocalStorage()" style="padding: 4px 8px; font-size: 10px;">
+                        Clear Local Data
+                    </button>
                 </div>
             </div>
 
@@ -458,6 +505,19 @@
     </div>
 
     <script>
+        // ============ CONFIGURATION ============
+        const CONFIG = {
+            BL_STORAGE_URL: 'https://blstorage.2029ijones.workers.dev',
+            API_KEY: 'chat-app-key-v2',
+            POLL_INTERVAL: 5000, // 5 seconds (reduced from 2 seconds)
+            HEARTBEAT_INTERVAL: 30000, // 30 seconds
+            LOCAL_BACKUP_INTERVAL: 10000, // 10 seconds
+            MAX_LOCAL_MESSAGES: 1000,
+            MAX_MESSAGES_PER_FETCH: 50,
+            USE_BL_STORAGE: true, // Can be toggled if BL Storage is down
+            ENABLE_LOCAL_BACKUP: true
+        };
+
         // ============ DEBUG LOGGING ============
         function debugLog(message, data = null) {
             const logDiv = document.getElementById('debugLog');
@@ -473,18 +533,221 @@
             console.log(message, data);
         }
 
-        // ============ BL STORAGE CLIENT (IMPROVED) ============
+        // ============ LOCAL STORAGE MANAGER ============
+        class LocalStorageManager {
+            constructor() {
+                this.prefix = 'bl_chat_';
+            }
+
+            getKey(key) {
+                return `${this.prefix}${key}`;
+            }
+
+            saveRoomData(roomId, roomData) {
+                try {
+                    const key = this.getKey(`room_${roomId}`);
+                    const data = {
+                        ...roomData,
+                        _lastBackup: Date.now(),
+                        _backupVersion: '2.0'
+                    };
+                    localStorage.setItem(key, JSON.stringify(data));
+                    debugLog(`Local backup saved for room ${roomId}`);
+                    return true;
+                } catch (error) {
+                    debugLog('Failed to save room data locally', error);
+                    return false;
+                }
+            }
+
+            loadRoomData(roomId) {
+                try {
+                    const key = this.getKey(`room_${roomId}`);
+                    const data = localStorage.getItem(key);
+                    if (!data) return null;
+                    
+                    const parsed = JSON.parse(data);
+                    debugLog(`Local backup loaded for room ${roomId}`);
+                    return parsed;
+                } catch (error) {
+                    debugLog('Failed to load room data locally', error);
+                    return null;
+                }
+            }
+
+            saveMessage(roomId, message) {
+                try {
+                    const key = this.getKey(`msg_${roomId}_${message.id}`);
+                    localStorage.setItem(key, JSON.stringify(message));
+                    
+                    // Also store message ID in room's message list
+                    const roomKey = this.getKey(`room_${roomId}_messages`);
+                    let messageIds = JSON.parse(localStorage.getItem(roomKey) || '[]');
+                    if (!messageIds.includes(message.id)) {
+                        messageIds.push(message.id);
+                        // Keep only recent messages
+                        if (messageIds.length > CONFIG.MAX_LOCAL_MESSAGES) {
+                            const oldId = messageIds.shift();
+                            localStorage.removeItem(this.getKey(`msg_${roomId}_${oldId}`));
+                        }
+                        localStorage.setItem(roomKey, JSON.stringify(messageIds));
+                    }
+                    
+                    return true;
+                } catch (error) {
+                    debugLog('Failed to save message locally', error);
+                    return false;
+                }
+            }
+
+            loadMessages(roomId, limit = 50) {
+                try {
+                    const roomKey = this.getKey(`room_${roomId}_messages`);
+                    const messageIds = JSON.parse(localStorage.getItem(roomKey) || '[]');
+                    
+                    const messages = [];
+                    // Get messages in reverse order (newest first)
+                    const idsToLoad = messageIds.slice(-limit).reverse();
+                    
+                    for (const msgId of idsToLoad) {
+                        const key = this.getKey(`msg_${roomId}_${msgId}`);
+                        const data = localStorage.getItem(key);
+                        if (data) {
+                            messages.push(JSON.parse(data));
+                        }
+                    }
+                    
+                    debugLog(`Loaded ${messages.length} messages from local storage`);
+                    return messages;
+                } catch (error) {
+                    debugLog('Failed to load messages locally', error);
+                    return [];
+                }
+            }
+
+            saveUserActivity(roomId, userId, userData) {
+                try {
+                    const key = this.getKey(`user_${roomId}_${userId}`);
+                    const data = {
+                        ...userData,
+                        _lastSeen: Date.now()
+                    };
+                    localStorage.setItem(key, JSON.stringify(data));
+                    
+                    // Store user ID in room's user list
+                    const roomUsersKey = this.getKey(`room_${roomId}_users`);
+                    let userIds = JSON.parse(localStorage.getItem(roomUsersKey) || '[]');
+                    if (!userIds.includes(userId)) {
+                        userIds.push(userId);
+                        localStorage.setItem(roomUsersKey, JSON.stringify(userIds));
+                    }
+                    
+                    return true;
+                } catch (error) {
+                    debugLog('Failed to save user activity locally', error);
+                    return false;
+                }
+            }
+
+            loadRoomUsers(roomId) {
+                try {
+                    const roomUsersKey = this.getKey(`room_${roomId}_users`);
+                    const userIds = JSON.parse(localStorage.getItem(roomUsersKey) || '[]');
+                    
+                    const users = {};
+                    const now = Date.now();
+                    
+                    for (const userId of userIds) {
+                        const key = this.getKey(`user_${roomId}_${userId}`);
+                        const data = localStorage.getItem(key);
+                        if (data) {
+                            const userData = JSON.parse(data);
+                            // Remove users who haven't been active for 30 minutes
+                            if (now - (userData._lastSeen || 0) < 30 * 60 * 1000) {
+                                users[userId] = userData;
+                            }
+                        }
+                    }
+                    
+                    debugLog(`Loaded ${Object.keys(users).length} users from local storage`);
+                    return users;
+                } catch (error) {
+                    debugLog('Failed to load users locally', error);
+                    return {};
+                }
+            }
+
+            clearAllData() {
+                try {
+                    const keysToRemove = [];
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key.startsWith(this.prefix)) {
+                            keysToRemove.push(key);
+                        }
+                    }
+                    
+                    for (const key of keysToRemove) {
+                        localStorage.removeItem(key);
+                    }
+                    
+                    debugLog(`Cleared ${keysToRemove.length} items from local storage`);
+                    return keysToRemove.length;
+                } catch (error) {
+                    debugLog('Failed to clear local storage', error);
+                    return 0;
+                }
+            }
+
+            getStats() {
+                try {
+                    let roomCount = 0;
+                    let messageCount = 0;
+                    let userCount = 0;
+                    
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key.startsWith(this.prefix)) {
+                            if (key.includes('_room_') && !key.includes('_messages') && !key.includes('_users')) {
+                                roomCount++;
+                            } else if (key.includes('_msg_')) {
+                                messageCount++;
+                            } else if (key.includes('_user_')) {
+                                userCount++;
+                            }
+                        }
+                    }
+                    
+                    return {
+                        roomCount,
+                        messageCount,
+                        userCount,
+                        totalSize: JSON.stringify(localStorage).length
+                    };
+                } catch (error) {
+                    return { roomCount: 0, messageCount: 0, userCount: 0, totalSize: 0 };
+                }
+            }
+        }
+
+        // ============ BL STORAGE CLIENT (WITH FALLBACK) ============
         class BLStorageClient {
-            constructor(baseUrl = 'https://blstorage.2029ijones.workers.dev') {
-                this.baseUrl = baseUrl.replace(/\/$/, '');
+            constructor() {
+                this.baseUrl = CONFIG.BL_STORAGE_URL.replace(/\/$/, '');
+                this.apiKey = CONFIG.API_KEY;
+                this.localStorageManager = new LocalStorageManager();
+                this.isOnline = false;
+                this.lastError = null;
             }
 
             async _request(endpoint, method = 'GET', data = null, params = {}) {
+                if (!CONFIG.USE_BL_STORAGE) {
+                    throw new Error('BL Storage disabled');
+                }
+
                 try {
-                    // Build URL with query parameters
                     const url = new URL(`${this.baseUrl}/api/v1/${endpoint}`);
                     
-                    // Add query parameters
                     Object.entries(params).forEach(([key, value]) => {
                         if (value !== undefined && value !== null && value !== '') {
                             url.searchParams.set(key, value.toString());
@@ -497,7 +760,8 @@
                         method,
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-BL-API-Key': 'chat-app-key-v2'
+                            'X-BL-API-Key': this.apiKey,
+                            'Accept': 'application/json'
                         }
                     };
                     
@@ -505,7 +769,13 @@
                         options.body = JSON.stringify(data);
                     }
                     
+                    // Add timeout
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 10000);
+                    options.signal = controller.signal;
+                    
                     const response = await fetch(url, options);
+                    clearTimeout(timeoutId);
                     
                     if (!response.ok) {
                         const errorText = await response.text();
@@ -514,51 +784,216 @@
                     
                     const result = await response.json();
                     debugLog(`Response from ${endpoint}`, result);
+                    this.isOnline = true;
+                    this.lastError = null;
                     return result;
                     
                 } catch (error) {
+                    this.isOnline = false;
+                    this.lastError = error.message;
                     debugLog(`Request failed: ${endpoint}`, error.message);
                     throw error;
                 }
             }
 
             async store(key, value, options = {}) {
-                return this._request('store', 'POST', {
-                    value: value,
-                    options: {
-                        encrypted: false,
-                        accessControl: { public: true },
-                        ttl: null, // CRITICAL FIX: NO EXPIRATION
-                        tags: ['chat', 'persistent'],
-                        ...options
+                try {
+                    const result = await this._request('store', 'POST', {
+                        value: value,
+                        options: {
+                            encrypted: false,
+                            accessControl: { public: true },
+                            ttl: null,
+                            tags: ['chat', 'persistent'],
+                            ...options
+                        }
+                    }, { key: key });
+                    
+                    // Also store locally for backup
+                    if (CONFIG.ENABLE_LOCAL_BACKUP) {
+                        if (key.startsWith('chat_room_')) {
+                            this.localStorageManager.saveRoomData(key.replace('chat_room_', ''), value);
+                        } else if (key.startsWith('chat_msg_')) {
+                            const roomId = value.roomId || 'unknown';
+                            this.localStorageManager.saveMessage(roomId, value);
+                        }
                     }
-                }, { key: key });
+                    
+                    return result;
+                } catch (error) {
+                    // If BL Storage fails, still store locally
+                    if (CONFIG.ENABLE_LOCAL_BACKUP) {
+                        if (key.startsWith('chat_room_')) {
+                            this.localStorageManager.saveRoomData(key.replace('chat_room_', ''), value);
+                            return { success: true, fromLocal: true, key };
+                        } else if (key.startsWith('chat_msg_')) {
+                            const roomId = value.roomId || 'unknown';
+                            this.localStorageManager.saveMessage(roomId, value);
+                            return { success: true, fromLocal: true, key };
+                        }
+                    }
+                    throw error;
+                }
             }
 
             async retrieve(key, options = {}) {
-                return this._request('retrieve', 'GET', null, { 
-                    key: key,
-                    ...options 
-                });
+                try {
+                    const result = await this._request('retrieve', 'GET', null, { 
+                        key: key,
+                        ...options 
+                    });
+                    
+                    // Update local backup with fresh data
+                    if (CONFIG.ENABLE_LOCAL_BACKUP && result.value) {
+                        if (key.startsWith('chat_room_')) {
+                            this.localStorageManager.saveRoomData(key.replace('chat_room_', ''), result.value);
+                        } else if (key.startsWith('chat_msg_')) {
+                            const roomId = result.value.roomId || 'unknown';
+                            this.localStorageManager.saveMessage(roomId, result.value);
+                        }
+                    }
+                    
+                    return result;
+                } catch (error) {
+                    // Try to get from local storage
+                    if (CONFIG.ENABLE_LOCAL_BACKUP) {
+                        if (key.startsWith('chat_room_')) {
+                            const roomId = key.replace('chat_room_', '');
+                            const roomData = this.localStorageManager.loadRoomData(roomId);
+                            if (roomData) {
+                                return { 
+                                    value: roomData, 
+                                    metadata: { fromLocal: true },
+                                    retrievedAt: Date.now()
+                                };
+                            }
+                        } else if (key.startsWith('chat_msg_')) {
+                            const msgId = key.replace('chat_msg_', '');
+                            // We'd need to know roomId to load from local
+                            // For now, return null
+                        }
+                    }
+                    throw error;
+                }
             }
 
             async update(key, value, options = {}) {
-                return this._request('update', 'POST', {
-                    value: value,
-                    options: options
-                }, { key: key });
-            }
-
-            async delete(key, options = {}) {
-                return this._request('delete', 'DELETE', options, { key: key });
+                try {
+                    const result = await this._request('update', 'POST', {
+                        value: value,
+                        options: options
+                    }, { key: key });
+                    
+                    // Update local backup
+                    if (CONFIG.ENABLE_LOCAL_BACKUP) {
+                        if (key.startsWith('chat_room_')) {
+                            this.localStorageManager.saveRoomData(key.replace('chat_room_', ''), value);
+                        }
+                    }
+                    
+                    return result;
+                } catch (error) {
+                    // Update locally if BL Storage fails
+                    if (CONFIG.ENABLE_LOCAL_BACKUP && key.startsWith('chat_room_')) {
+                        this.localStorageManager.saveRoomData(key.replace('chat_room_', ''), value);
+                        return { success: true, fromLocal: true, key };
+                    }
+                    throw error;
+                }
             }
 
             async health() {
-                return this._request('health', 'GET');
+                try {
+                    const result = await this._request('health', 'GET');
+                    this.isOnline = true;
+                    return result;
+                } catch (error) {
+                    this.isOnline = false;
+                    // Still return a basic health status
+                    return {
+                        status: 'degraded',
+                        fromLocal: true,
+                        message: 'Using local storage backup',
+                        timestamp: Date.now()
+                    };
+                }
+            }
+
+            async syncLocalToRemote(roomId) {
+                if (!this.isOnline || !CONFIG.USE_BL_STORAGE) {
+                    return { synced: false, reason: 'Offline or disabled' };
+                }
+
+                try {
+                    // Load local data
+                    const localRoomData = this.localStorageManager.loadRoomData(roomId);
+                    const localMessages = this.localStorageManager.loadMessages(roomId, 100);
+                    const localUsers = this.localStorageManager.loadRoomUsers(roomId);
+                    
+                    if (!localRoomData) {
+                        return { synced: false, reason: 'No local data' };
+                    }
+                    
+                    // Merge local data with remote
+                    const roomKey = `chat_room_${roomId}`;
+                    
+                    // Try to get existing remote room
+                    let remoteRoomData;
+                    try {
+                        const remoteResult = await this.retrieve(roomKey);
+                        remoteRoomData = remoteResult.value;
+                    } catch (error) {
+                        // Room doesn't exist remotely, create it
+                        remoteRoomData = localRoomData;
+                    }
+                    
+                    // Merge messages
+                    const allMessageIds = new Set([
+                        ...(remoteRoomData.messages || []),
+                        ...localMessages.map(m => m.id)
+                    ]);
+                    
+                    // Merge users
+                    const allUsers = { ...remoteRoomData.users, ...localUsers };
+                    
+                    // Update room with merged data
+                    const updatedRoomData = {
+                        ...remoteRoomData,
+                        ...localRoomData,
+                        messages: Array.from(allMessageIds),
+                        users: allUsers,
+                        lastSync: Date.now(),
+                        localBackupVersion: '2.0'
+                    };
+                    
+                    // Save to BL Storage
+                    await this.store(roomKey, updatedRoomData);
+                    
+                    // Upload individual messages that might be missing
+                    for (const localMsg of localMessages) {
+                        const msgKey = `chat_msg_${localMsg.id}`;
+                        try {
+                            await this.store(msgKey, localMsg);
+                        } catch (error) {
+                            debugLog(`Failed to sync message ${localMsg.id}`, error.message);
+                        }
+                    }
+                    
+                    debugLog(`Synced local data for room ${roomId} to BL Storage`);
+                    return { 
+                        synced: true, 
+                        messages: localMessages.length,
+                        users: Object.keys(localUsers).length
+                    };
+                    
+                } catch (error) {
+                    debugLog('Failed to sync local to remote', error.message);
+                    return { synced: false, reason: error.message };
+                }
             }
         }
 
-        // ============ MULTI-USER CHAT SYSTEM ============
+        // ============ SIMPLIFIED CHAT SYSTEM ============
         class MultiUserChat {
             constructor(userName, userAvatar, roomId, roomName) {
                 this.userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -567,37 +1002,43 @@
                 this.roomId = roomId;
                 this.roomName = roomName;
                 this.client = new BLStorageClient();
+                this.localStorage = new LocalStorageManager();
+                
                 this.roomKey = `chat_room_${this.roomId}`;
                 this.lastMessageId = null;
                 this.lastSeenMessageId = null;
-                this.activeUsers = new Map();
-                this.lastHeartbeat = Date.now();
-                this.heartbeatInterval = null;
                 this.pollingInterval = null;
-                this.typingTimeout = null;
-                this.isTyping = false;
+                this.backupInterval = null;
+                this.messages = [];
+                this.users = {};
                 
                 debugLog(`Chat created for ${userName} in room ${roomId}`);
             }
 
             async initialize() {
                 try {
-                    // Test connection
-                    const health = await this.client.health();
-                    debugLog('Health check', health);
+                    // Update storage status
+                    updateStorageStatus();
                     
-                    if (!health || health.status !== 'healthy') {
-                        throw new Error('BL Storage not available');
+                    // Try to sync local backup to BL Storage
+                    if (CONFIG.USE_BL_STORAGE && CONFIG.ENABLE_LOCAL_BACKUP) {
+                        const syncResult = await this.client.syncLocalToRemote(this.roomId);
+                        if (syncResult.synced) {
+                            showNotification(`Synced ${syncResult.messages} messages from local backup`, 'info');
+                        }
                     }
-
-                    // Initialize or get room with proper TTL settings
+                    
+                    // Initialize or get room
                     await this.ensureRoomExists();
                     
                     // Join the room
                     await this.joinRoom();
                     
-                    // Start heartbeats
-                    this.startHeartbeat();
+                    // Load existing messages
+                    await this.loadExistingMessages();
+                    
+                    // Start periodic tasks
+                    this.startPeriodicTasks();
                     
                     updateStatus(true);
                     debugLog('Chat initialized successfully');
@@ -605,90 +1046,123 @@
                     
                 } catch (error) {
                     debugLog('Chat initialization failed', error.message);
-                    throw error;
+                    // Even if initialization fails, we can still work locally
+                    showNotification('Using local storage mode. Messages will be saved locally.', 'warning');
+                    await this.initializeLocalFallback();
+                    return true;
                 }
             }
 
             async ensureRoomExists() {
+                const roomData = {
+                    id: this.roomId,
+                    name: this.roomName,
+                    created: Date.now(),
+                    lastActive: Date.now(),
+                    settings: {
+                        maxUsers: 50,
+                        allowImages: true,
+                        persistMessages: true
+                    },
+                    users: {},
+                    messages: [],
+                    messageCount: 0
+                };
+
                 try {
-                    // Try to get existing room first
-                    const existing = await this.client.retrieve(this.roomKey);
-                    debugLog('Existing room found', existing);
-                    
-                    // Update room heartbeat and ensure it has no TTL
-                    if (existing.value) {
-                        existing.value.lastActive = Date.now();
-                        await this.client.update(this.roomKey, existing.value);
-                    }
-                    
-                } catch (error) {
-                    // Create new room with PERSISTENT settings
-                    debugLog('Creating new room (persistent)');
-                    
-                    const roomData = {
-                        id: this.roomId,
-                        name: this.roomName,
-                        created: Date.now(),
-                        lastActive: Date.now(),
-                        settings: {
-                            maxUsers: 50,
-                            allowImages: true,
-                            persistMessages: true
-                        },
-                        users: {},
-                        messages: [],
-                        messageCount: 0
-                    };
-                    
+                    // Try to store in BL Storage first
                     await this.client.store(this.roomKey, roomData, {
-                        ttl: null, // NO EXPIRATION
+                        ttl: null,
                         dimensions: ['chat', 'persistent'],
                         tags: ['chat-room', 'persistent', this.roomId]
                     });
+                    debugLog('Room created in BL Storage');
+                } catch (error) {
+                    // Fall back to local storage
+                    this.localStorage.saveRoomData(this.roomId, roomData);
+                    debugLog('Room saved locally (BL Storage unavailable)');
                 }
             }
 
             async joinRoom() {
+                const userData = {
+                    id: this.userId,
+                    name: this.userName,
+                    avatar: this.userAvatar,
+                    joined: Date.now(),
+                    lastActive: Date.now(),
+                    status: 'online'
+                };
+
                 try {
-                    const room = await this.client.retrieve(this.roomKey);
-                    
-                    if (room.value) {
-                        // Add or update user in room
-                        room.value.users[this.userId] = {
-                            name: this.userName,
-                            avatar: this.userAvatar,
-                            joined: Date.now(),
-                            lastActive: Date.now(),
-                            status: 'online'
-                        };
-                        
-                        room.value.lastActive = Date.now();
-                        
-                        await this.client.update(this.roomKey, room.value);
-                        
-                        // Update user count
-                        this.updateUserCount(Object.keys(room.value.users).length);
+                    // Try to update in BL Storage
+                    const roomResult = await this.client.retrieve(this.roomKey);
+                    if (roomResult.value) {
+                        roomResult.value.users[this.userId] = userData;
+                        roomResult.value.lastActive = Date.now();
+                        await this.client.update(this.roomKey, roomResult.value);
                     }
                 } catch (error) {
-                    debugLog('Failed to join room', error.message);
+                    // Update locally
+                    const localRoomData = this.localStorage.loadRoomData(this.roomId) || {
+                        id: this.roomId,
+                        users: {},
+                        messages: []
+                    };
+                    localRoomData.users[this.userId] = userData;
+                    localRoomData.lastActive = Date.now();
+                    this.localStorage.saveRoomData(this.roomId, localRoomData);
                 }
+
+                // Always save user activity locally
+                this.localStorage.saveUserActivity(this.roomId, this.userId, userData);
+                
+                // Update UI
+                this.updateUserList();
             }
 
-            async leaveRoom() {
+            async loadExistingMessages() {
                 try {
-                    const room = await this.client.retrieve(this.roomKey);
-                    
-                    if (room.value && room.value.users[this.userId]) {
-                        delete room.value.users[this.userId];
-                        room.value.lastActive = Date.now();
+                    // Try to get from BL Storage first
+                    const roomResult = await this.client.retrieve(this.roomKey);
+                    if (roomResult.value && roomResult.value.messages) {
+                        const messageIds = roomResult.value.messages.slice(-CONFIG.MAX_MESSAGES_PER_FETCH);
                         
-                        await this.client.update(this.roomKey, room.value);
-                        
-                        this.updateUserCount(Object.keys(room.value.users).length);
+                        for (const msgId of messageIds) {
+                            try {
+                                const msgResult = await this.client.retrieve(`chat_msg_${msgId}`);
+                                if (msgResult.value) {
+                                    this.messages.push(msgResult.value);
+                                    this.lastMessageId = msgId;
+                                }
+                            } catch (error) {
+                                // Message might not exist in BL Storage, try local
+                                const localMessages = this.localStorage.loadMessages(this.roomId, 100);
+                                const localMsg = localMessages.find(m => m.id === msgId);
+                                if (localMsg) {
+                                    this.messages.push(localMsg);
+                                }
+                            }
+                        }
                     }
                 } catch (error) {
-                    debugLog('Failed to leave room', error.message);
+                    // Fall back to local storage
+                    const localMessages = this.localStorage.loadMessages(this.roomId, CONFIG.MAX_MESSAGES_PER_FETCH);
+                    this.messages = localMessages;
+                    if (localMessages.length > 0) {
+                        this.lastMessageId = localMessages[localMessages.length - 1].id;
+                    }
                 }
+
+                // Sort messages by timestamp
+                this.messages.sort((a, b) => a.timestamp - b.timestamp);
+                
+                // Display messages
+                this.messages.forEach(message => {
+                    addMessageToUI(message, message.userId === this.userId);
+                });
+                
+                debugLog(`Loaded ${this.messages.length} existing messages`);
             }
 
             async sendMessage(text) {
@@ -705,53 +1179,66 @@
                     roomId: this.roomId
                 };
 
-                // Store message separately (better for large chat histories)
-                const messageKey = `chat_msg_${messageId}`;
-                await this.client.store(messageKey, message, {
-                    ttl: null, // NO EXPIRATION
+                // Store message (will try BL Storage first, fall back to local)
+                await this.client.store(`chat_msg_${messageId}`, message, {
+                    ttl: null,
                     tags: ['chat-message', this.roomId, 'persistent']
                 });
 
-                // Update room with message reference (optimized for multiple users)
+                // Update room with message reference
                 try {
-                    const room = await this.client.retrieve(this.roomKey);
-                    if (room.value) {
-                        // Add message ID to room's message list
-                        room.value.messages.push(messageId);
-                        room.value.messageCount = room.value.messages.length;
-                        room.value.lastActivity = Date.now();
-                        room.value.lastMessage = messageId;
-                        
-                        // Update user activity
-                        if (room.value.users[this.userId]) {
-                            room.value.users[this.userId].lastActive = Date.now();
+                    const roomResult = await this.client.retrieve(this.roomKey);
+                    if (roomResult.value) {
+                        if (!roomResult.value.messages.includes(messageId)) {
+                            roomResult.value.messages.push(messageId);
+                            roomResult.value.messageCount = roomResult.value.messages.length;
+                            roomResult.value.lastActivity = Date.now();
+                            roomResult.value.lastMessage = messageId;
+                            
+                            // Update user activity
+                            if (roomResult.value.users[this.userId]) {
+                                roomResult.value.users[this.userId].lastActive = Date.now();
+                            }
+                            
+                            await this.client.update(this.roomKey, roomResult.value);
                         }
-                        
-                        await this.client.update(this.roomKey, room.value);
-                        
-                        // Update last message ID for polling
-                        this.lastMessageId = messageId;
                     }
                 } catch (error) {
-                    debugLog('Failed to update room with message', error.message);
-                    // Continue anyway - message is stored
+                    // Update locally
+                    const localRoomData = this.localStorage.loadRoomData(this.roomId) || {
+                        id: this.roomId,
+                        messages: []
+                    };
+                    if (!localRoomData.messages.includes(messageId)) {
+                        localRoomData.messages.push(messageId);
+                        localRoomData.messageCount = localRoomData.messages.length;
+                        localRoomData.lastActivity = Date.now();
+                        this.localStorage.saveRoomData(this.roomId, localRoomData);
+                    }
+                }
+
+                // Add to local messages array
+                this.messages.push(message);
+                this.lastMessageId = messageId;
+                
+                // Keep only recent messages in memory
+                if (this.messages.length > CONFIG.MAX_MESSAGES_PER_FETCH * 2) {
+                    this.messages = this.messages.slice(-CONFIG.MAX_MESSAGES_PER_FETCH);
                 }
 
                 return message;
             }
 
-            async getNewMessages() {
+            async checkForNewMessages() {
                 try {
-                    const room = await this.client.retrieve(this.roomKey);
-                    
-                    if (!room.value || !room.value.messages || room.value.messages.length === 0) {
+                    const roomResult = await this.client.retrieve(this.roomKey);
+                    if (!roomResult.value || !roomResult.value.messages || roomResult.value.messages.length === 0) {
                         return [];
                     }
 
-                    // Get all message IDs we haven't seen
-                    const messageIds = room.value.messages;
-                    const lastSeenIndex = this.lastSeenMessageId ? 
-                        messageIds.indexOf(this.lastSeenMessageId) : -1;
+                    const messageIds = roomResult.value.messages;
+                    const lastSeenIndex = this.lastMessageId ? 
+                        messageIds.indexOf(this.lastMessageId) : -1;
                     
                     const newMessageIds = messageIds.slice(lastSeenIndex + 1);
                     
@@ -759,199 +1246,167 @@
                         return [];
                     }
 
-                    // Fetch new messages in parallel
-                    const messagePromises = newMessageIds.map(async (msgId) => {
+                    const newMessages = [];
+                    for (const msgId of newMessageIds) {
                         try {
-                            const msg = await this.client.retrieve(`chat_msg_${msgId}`);
-                            return msg.value;
+                            const msgResult = await this.client.retrieve(`chat_msg_${msgId}`);
+                            if (msgResult.value && msgResult.value.userId !== this.userId) {
+                                newMessages.push(msgResult.value);
+                                this.lastMessageId = msgId;
+                            }
                         } catch (error) {
-                            debugLog(`Failed to fetch message ${msgId}`, error.message);
-                            return null;
+                            // Try local storage
+                            const localMessages = this.localStorage.loadMessages(this.roomId, 100);
+                            const localMsg = localMessages.find(m => m.id === msgId);
+                            if (localMsg && localMsg.userId !== this.userId) {
+                                newMessages.push(localMsg);
+                                this.lastMessageId = msgId;
+                            }
                         }
-                    });
-
-                    const messages = await Promise.all(messagePromises);
-                    const validMessages = messages.filter(msg => msg !== null && msg.userId !== this.userId);
-                    
-                    // Update last seen
-                    if (newMessageIds.length > 0) {
-                        this.lastSeenMessageId = newMessageIds[newMessageIds.length - 1];
                     }
                     
-                    return validMessages;
+                    return newMessages;
                     
                 } catch (error) {
-                    debugLog('Failed to get new messages', error.message);
-                    return [];
-                }
-            }
-
-            async getRecentMessages(limit = 50) {
-                try {
-                    const room = await this.client.retrieve(this.roomKey);
-                    
-                    if (!room.value || !room.value.messages || room.value.messages.length === 0) {
-                        return [];
-                    }
-
-                    const messageIds = room.value.messages.slice(-limit);
-                    
-                    const messagePromises = messageIds.map(async (msgId) => {
-                        try {
-                            const msg = await this.client.retrieve(`chat_msg_${msgId}`);
-                            return msg.value;
-                        } catch (error) {
-                            return null;
-                        }
-                    });
-
-                    const messages = await Promise.all(messagePromises);
-                    return messages.filter(msg => msg !== null);
-                    
-                } catch (error) {
-                    debugLog('Failed to get recent messages', error.message);
+                    debugLog('Failed to check for new messages', error.message);
                     return [];
                 }
             }
 
             async updateUserActivity() {
                 try {
-                    const room = await this.client.retrieve(this.roomKey);
-                    
-                    if (room.value && room.value.users[this.userId]) {
-                        room.value.users[this.userId].lastActive = Date.now();
-                        room.value.users[this.userId].status = 'online';
-                        room.value.lastActive = Date.now();
+                    const roomResult = await this.client.retrieve(this.roomKey);
+                    if (roomResult.value && roomResult.value.users[this.userId]) {
+                        roomResult.value.users[this.userId].lastActive = Date.now();
+                        roomResult.value.users[this.userId].status = 'online';
+                        roomResult.value.lastActive = Date.now();
                         
-                        await this.client.update(this.roomKey, room.value);
+                        await this.client.update(this.roomKey, roomResult.value);
                         
-                        // Clean up inactive users (15 minutes timeout)
-                        const now = Date.now();
-                        const inactiveUsers = Object.entries(room.value.users)
-                            .filter(([id, user]) => now - user.lastActive > 15 * 60 * 1000);
-                        
-                        if (inactiveUsers.length > 0) {
-                            inactiveUsers.forEach(([id]) => {
-                                delete room.value.users[id];
-                            });
-                            await this.client.update(this.roomKey, room.value);
-                            this.updateUserCount(Object.keys(room.value.users).length);
-                        }
+                        // Update user list
+                        this.users = roomResult.value.users;
+                        this.updateUserList();
                     }
                 } catch (error) {
-                    debugLog('Failed to update user activity', error.message);
+                    // Update locally
+                    this.localStorage.saveUserActivity(this.roomId, this.userId, {
+                        id: this.userId,
+                        name: this.userName,
+                        avatar: this.userAvatar,
+                        lastActive: Date.now(),
+                        status: 'online'
+                    });
+                    
+                    // Load users from local storage
+                    this.users = this.localStorage.loadRoomUsers(this.roomId);
+                    this.updateUserList();
                 }
             }
 
-            async sendTypingIndicator() {
-                try {
-                    const room = await this.client.retrieve(this.roomKey);
-                    
-                    if (room.value && room.value.users[this.userId]) {
-                        room.value.users[this.userId].typing = true;
-                        room.value.users[this.userId].typingSince = Date.now();
-                        
-                        await this.client.update(this.roomKey, room.value);
-                        
-                        // Clear typing after 5 seconds
-                        setTimeout(() => this.clearTypingIndicator(), 5000);
-                    }
-                } catch (error) {
-                    debugLog('Failed to send typing indicator', error.message);
-                }
+            updateUserList() {
+                const activeUsers = Object.values(this.users).filter(user => 
+                    Date.now() - user.lastActive < 5 * 60 * 1000 // Active within 5 minutes
+                );
+                
+                document.getElementById('userCount').textContent = activeUsers.length;
             }
 
-            async clearTypingIndicator() {
-                try {
-                    const room = await this.client.retrieve(this.roomKey);
-                    
-                    if (room.value && room.value.users[this.userId]) {
-                        delete room.value.users[this.userId].typing;
-                        delete room.value.users[this.userId].typingSince;
-                        
-                        await this.client.update(this.roomKey, room.value);
-                    }
-                } catch (error) {
-                    debugLog('Failed to clear typing indicator', error.message);
-                }
-            }
-
-            async checkOtherUsersTyping() {
-                try {
-                    const room = await this.client.retrieve(this.roomKey);
-                    
-                    if (!room.value || !room.value.users) return [];
-                    
-                    const now = Date.now();
-                    const typingUsers = Object.entries(room.value.users)
-                        .filter(([id, user]) => 
-                            id !== this.userId && 
-                            user.typing && 
-                            now - (user.typingSince || 0) < 6000 // 6 second timeout
-                        )
-                        .map(([id, user]) => user.name);
-                    
-                    return typingUsers;
-                } catch (error) {
-                    debugLog('Failed to check typing users', error.message);
-                    return [];
-                }
-            }
-
-            startHeartbeat() {
-                // Update activity every 30 seconds
-                this.heartbeatInterval = setInterval(async () => {
-                    await this.updateUserActivity();
-                    this.lastHeartbeat = Date.now();
-                }, 30000);
-            }
-
-            startPolling(onNewMessages, onUsersTyping) {
-                if (this.pollingInterval) {
-                    clearInterval(this.pollingInterval);
-                }
-
+            startPeriodicTasks() {
+                // Check for new messages
                 this.pollingInterval = setInterval(async () => {
                     try {
-                        // Check for new messages
-                        const newMessages = await this.getNewMessages();
+                        const newMessages = await this.checkForNewMessages();
                         if (newMessages.length > 0) {
-                            onNewMessages(newMessages);
+                            newMessages.forEach(message => {
+                                addMessageToUI(message, false);
+                            });
+                            
+                            if (newMessages.length > 0) {
+                                const names = [...new Set(newMessages.map(m => m.userName))];
+                                showNotification(`New message${newMessages.length > 1 ? 's' : ''} from ${names.join(', ')}`, 'info');
+                            }
                         }
                         
-                        // Check for typing indicators
-                        const typingUsers = await this.checkOtherUsersTyping();
-                        if (typingUsers.length > 0) {
-                            onUsersTyping(typingUsers);
+                        // Update user activity occasionally
+                        if (Math.random() < 0.2) { // 20% chance each poll
+                            await this.updateUserActivity();
                         }
-                        
-                        // Update user activity
-                        await this.updateUserActivity();
-                        
                     } catch (error) {
                         debugLog('Polling error', error.message);
                     }
-                }, 2000); // Every 2 seconds for real-time feel
+                }, CONFIG.POLL_INTERVAL);
+
+                // Backup to local storage periodically
+                if (CONFIG.ENABLE_LOCAL_BACKUP) {
+                    this.backupInterval = setInterval(() => {
+                        this.performLocalBackup();
+                    }, CONFIG.LOCAL_BACKUP_INTERVAL);
+                }
             }
 
-            stopPolling() {
+            performLocalBackup() {
+                try {
+                    // Save current room state
+                    const roomData = {
+                        id: this.roomId,
+                        name: this.roomName,
+                        lastBackup: Date.now(),
+                        messageCount: this.messages.length,
+                        userCount: Object.keys(this.users).length
+                    };
+                    
+                    this.localStorage.saveRoomData(this.roomId, roomData);
+                    
+                    // Save all messages
+                    for (const message of this.messages) {
+                        this.localStorage.saveMessage(this.roomId, message);
+                    }
+                    
+                    debugLog('Local backup performed');
+                } catch (error) {
+                    debugLog('Local backup failed', error.message);
+                }
+            }
+
+            async initializeLocalFallback() {
+                // Load everything from local storage
+                const localRoomData = this.localStorage.loadRoomData(this.roomId);
+                if (!localRoomData) {
+                    // Create fresh local room
+                    await this.ensureRoomExists();
+                }
+                
+                this.users = this.localStorage.loadRoomUsers(this.roomId);
+                this.updateUserList();
+                
+                this.messages = this.localStorage.loadMessages(this.roomId, CONFIG.MAX_MESSAGES_PER_FETCH);
+                if (this.messages.length > 0) {
+                    this.lastMessageId = this.messages[this.messages.length - 1].id;
+                }
+                
+                // Display messages
+                this.messages.forEach(message => {
+                    addMessageToUI(message, message.userId === this.userId);
+                });
+                
+                showNotification('Running in local storage mode. Messages saved locally.', 'info');
+            }
+
+            stop() {
                 if (this.pollingInterval) {
                     clearInterval(this.pollingInterval);
                     this.pollingInterval = null;
                 }
-                if (this.heartbeatInterval) {
-                    clearInterval(this.heartbeatInterval);
-                    this.heartbeatInterval = null;
+                if (this.backupInterval) {
+                    clearInterval(this.backupInterval);
+                    this.backupInterval = null;
                 }
-            }
-
-            updateUserCount(count) {
-                document.getElementById('userCount').textContent = count;
             }
         }
 
         // ============ GLOBAL STATE ============
         let chat = null;
+        const localStorageManager = new LocalStorageManager();
 
         // ============ UI FUNCTIONS ============
         function showNotification(message, type = 'info') {
@@ -979,6 +1434,43 @@
             }
         }
 
+        function updateStorageStatus() {
+            const blStatus = document.getElementById('blStatus');
+            const localStatus = document.getElementById('localStatus');
+            const backupStatus = document.getElementById('backupStatus');
+            
+            // Test BL Storage connection
+            const testClient = new BLStorageClient();
+            testClient.health().then(result => {
+                if (result.status === 'healthy') {
+                    blStatus.textContent = 'BL: Online';
+                    blStatus.className = 'online';
+                } else {
+                    blStatus.textContent = 'BL: Offline';
+                    blStatus.className = 'offline';
+                }
+            }).catch(() => {
+                blStatus.textContent = 'BL: Offline';
+                blStatus.className = 'offline';
+            });
+            
+            // Local storage status
+            try {
+                localStorage.setItem('test', 'test');
+                localStorage.removeItem('test');
+                localStatus.textContent = 'Local: Ready';
+                localStatus.className = 'online';
+            } catch (error) {
+                localStatus.textContent = 'Local: Full';
+                localStatus.className = 'offline';
+            }
+            
+            // Backup status
+            const stats = localStorageManager.getStats();
+            backupStatus.textContent = `Backup: ${stats.messageCount} msgs`;
+            backupStatus.className = 'backup';
+        }
+
         function copyRoomId() {
             const roomId = document.getElementById('currentRoomId').textContent;
             navigator.clipboard.writeText(roomId).then(() => {
@@ -990,14 +1482,6 @@
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
                 sendMessage();
-            } else if (chat && event.target.value.trim()) {
-                // Send typing indicator
-                if (!chat.typingTimeout) {
-                    chat.sendTypingIndicator();
-                    chat.typingTimeout = setTimeout(() => {
-                        chat.typingTimeout = null;
-                    }, 3000);
-                }
             }
         }
 
@@ -1012,12 +1496,6 @@
 
         function addMessageToUI(message, isCurrentUser = false) {
             const chatMessages = document.getElementById('chatMessages');
-            
-            // Remove typing indicator if present
-            const typingIndicator = document.getElementById('typingIndicator');
-            if (typingIndicator && typingIndicator.style.display !== 'none') {
-                typingIndicator.style.display = 'none';
-            }
             
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isCurrentUser ? 'sent' : 'received'}`;
@@ -1041,17 +1519,6 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-        function showTypingIndicator(userNames) {
-            const typingIndicator = document.getElementById('typingIndicator');
-            if (userNames.length > 0) {
-                typingIndicator.textContent = `${userNames.join(', ')} ${userNames.length === 1 ? 'is' : 'are'} typing...`;
-                typingIndicator.style.display = 'block';
-            } else {
-                typingIndicator.style.display = 'none';
-            }
-            document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
-        }
-
         async function sendMessage() {
             const messageInput = document.getElementById('messageInput');
             const text = messageInput.value.trim();
@@ -1066,13 +1533,6 @@
                 if (message) {
                     addMessageToUI(message, true);
                     messageInput.value = '';
-                    
-                    // Clear typing indicator
-                    if (chat.typingTimeout) {
-                        clearTimeout(chat.typingTimeout);
-                        chat.typingTimeout = null;
-                    }
-                    chat.clearTypingIndicator();
                 }
             } catch (error) {
                 showNotification(`Failed to send: ${error.message}`, 'error');
@@ -1117,36 +1577,13 @@
                 document.getElementById('currentRoomName').textContent = roomName;
                 document.getElementById('currentRoomId').textContent = roomId;
                 
-                // Load recent messages
-                const recentMessages = await chat.getRecentMessages(20);
-                recentMessages.forEach(message => {
-                    addMessageToUI(message, message.userId === chat.userId);
-                });
-                
-                // Start polling
-                chat.startPolling(
-                    (newMessages) => {
-                        newMessages.forEach(message => {
-                            addMessageToUI(message, false);
-                        });
-                        
-                        if (newMessages.length > 0) {
-                            const names = [...new Set(newMessages.map(m => m.userName))];
-                            showNotification(`New message${newMessages.length > 1 ? 's' : ''} from ${names.join(', ')}`, 'info');
-                        }
-                    },
-                    (typingUsers) => {
-                        showTypingIndicator(typingUsers);
-                    }
-                );
-                
                 // Enable input
                 const messageInput = document.getElementById('messageInput');
                 messageInput.disabled = false;
                 document.getElementById('sendBtn').disabled = false;
                 messageInput.focus();
                 
-                showNotification(`Welcome ${userName}! Share Room ID: ${roomId}`, 'info');
+                showNotification(`Welcome ${userName}! Room: ${roomId}`, 'info');
                 
             } catch (error) {
                 debugLog('Chat init failed', error.message);
@@ -1156,12 +1593,20 @@
             }
         }
 
+        function clearLocalStorage() {
+            if (confirm('Clear all local chat data? This cannot be undone.')) {
+                const count = localStorageManager.clearAllData();
+                showNotification(`Cleared ${count} items from local storage`, 'info');
+                updateStorageStatus();
+            }
+        }
+
         // ============ PAGE VISIBILITY & CLEANUP ============
         document.addEventListener('visibilitychange', async () => {
             if (!document.hidden && chat) {
                 // Refresh when tab becomes visible
                 updateStatus(true);
-                const newMessages = await chat.getNewMessages();
+                const newMessages = await chat.checkForNewMessages();
                 newMessages.forEach(message => {
                     addMessageToUI(message, false);
                 });
@@ -1172,28 +1617,28 @@
         window.addEventListener('beforeunload', async () => {
             if (chat) {
                 try {
-                    await chat.leaveRoom();
-                    chat.stopPolling();
+                    chat.stop();
+                    // Perform final backup
+                    chat.performLocalBackup();
                 } catch (error) {
                     console.error('Cleanup error:', error);
                 }
             }
         });
 
-        // Initial connection test
+        // Initial setup
         window.addEventListener('load', async () => {
-            try {
-                const testClient = new BLStorageClient();
-                const health = await testClient.health();
-                debugLog('Connection test', health);
-                if (health.status === 'healthy') {
-                    updateStatus(true);
-                    showNotification('Connected to BL Storage!', 'info');
-                }
-            } catch (error) {
-                debugLog('Connection test failed', error.message);
-                showNotification('Cannot connect to BL Storage. Trying offline mode.', 'warning');
+            updateStorageStatus();
+            
+            // Check if we should restore a previous session
+            const lastRoom = localStorage.getItem('bl_chat_last_room');
+            if (lastRoom) {
+                document.getElementById('roomId').value = lastRoom;
+                showNotification(`Found previous room: ${lastRoom}`, 'info');
             }
+            
+            // Periodically update storage status
+            setInterval(updateStorageStatus, 30000);
         });
     </script>
 </body>
